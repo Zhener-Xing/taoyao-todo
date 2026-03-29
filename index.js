@@ -1,13 +1,28 @@
 /**
- * 仅使用 Node 内置模块：接收前端 OpenAI 兼容 chat 请求体，转发至 DeepSeek。
+ * 静态站点（桃夭todo）+ 智能安排 API 代理；仅 Node 内置模块。
  */
 const http = require("http");
+const fs = require("fs");
+const path = require("path");
 
 const PORT = Number(process.env.PORT) || 3000;
+const STATIC_ROOT = path.join(__dirname, "public");
+
 const DEEPSEEK_URL =
   process.env.DEEPSEEK_API_URL || "https://api.deepseek.com/chat/completions";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const MAX_BODY = 2 * 1024 * 1024;
+
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".svg": "image/svg+xml",
+};
 
 function corsHeaders(req) {
   const origin = req.headers.origin;
@@ -59,11 +74,46 @@ function readBody(req) {
   });
 }
 
+function safeStaticPath(urlPathname) {
+  let rel =
+    urlPathname === "/" || urlPathname === "" ? "index.html" : urlPathname.replace(/^\//, "");
+  rel = path.normalize(rel).replace(/^(\.\.(\/|\\|$))+/, "");
+  const root = path.resolve(STATIC_ROOT);
+  const resolved = path.resolve(STATIC_ROOT, rel);
+  if (!resolved.startsWith(root + path.sep) && resolved !== root) {
+    return null;
+  }
+  return resolved;
+}
+
+function serveStaticFile(req, res, filePath) {
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      if (err.code === "ENOENT") {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Not Found");
+      } else {
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("读取文件失败");
+      }
+      return;
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    const type = MIME[ext] || "application/octet-stream";
+    res.writeHead(200, {
+      "Content-Type": type,
+      "Content-Length": data.length,
+      "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=86400",
+    });
+    res.end(data);
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const host = req.headers.host || "localhost";
     const url = new URL(req.url || "/", `http://${host}`);
-    const path = url.pathname;
+    const pathname = url.pathname;
 
     if (req.method === "OPTIONS") {
       res.writeHead(204, corsHeaders(req));
@@ -71,12 +121,12 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "GET" && path === "/health") {
+    if (req.method === "GET" && pathname === "/health") {
       sendJson(req, res, 200, { ok: true });
       return;
     }
 
-    if (req.method === "POST" && path === "/api/smart-schedule") {
+    if (req.method === "POST" && pathname === "/api/smart-schedule") {
       if (!DEEPSEEK_API_KEY) {
         sendJson(req, res, 500, {
           error: { message: "服务器未配置 DEEPSEEK_API_KEY 环境变量" },
@@ -140,6 +190,14 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET") {
+      const filePath = safeStaticPath(pathname);
+      if (filePath) {
+        serveStaticFile(req, res, filePath);
+        return;
+      }
+    }
+
     res.writeHead(404, corsHeaders(req));
     res.end();
   } catch (err) {
@@ -151,5 +209,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`智能安排代理 listening on :${PORT}（无 npm 依赖）`);
+  console.log(
+    `桃夭todo：静态页 + 智能安排 API 已监听 :${PORT}（无 npm 依赖，文件目录 public/）`
+  );
 });
