@@ -1,0 +1,18 @@
+{
+  "name": "小清单",
+  "short_name": "小清单",
+  "description": "每日与综合任务清单",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fffbf5",
+  "theme_color": "#ff8fab",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

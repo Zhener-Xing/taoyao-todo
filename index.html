@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>小清单 · Todo</title>
+    <!-- 图标与 PWA：使用站点根路径（以 / 开头）。若部署在子目录，请将前缀改为 /子目录名 -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#ff8fab" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="小清单" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-blobs" aria-hidden="true">
+      <span class="blob blob-a"></span>
+      <span class="blob blob-b"></span>
+      <span class="blob blob-c"></span>
+    </div>
+
+    <main class="shell">
+      <header class="hero">
+        <h1 class="hero-title">我的小清单</h1>
+      </header>
+
+      <section class="card sheet-card" aria-label="任务表类型">
+        <p class="sheet-label">任务表</p>
+        <div class="sheet-switch" role="group">
+          <button type="button" class="sheet-btn is-active" id="sheet-daily" data-sheet="daily">
+            每日任务表
+          </button>
+          <button type="button" class="sheet-btn" id="sheet-comprehensive" data-sheet="comprehensive">
+            综合任务表
+          </button>
+        </div>
+      </section>
+
+      <section class="card daily-mode-card" id="daily-mode-card" hidden>
+        <p class="sheet-label">每日</p>
+        <div class="sheet-switch daily-arr-switch" role="group">
+          <button type="button" class="sheet-btn is-active" id="daily-arr-manual" data-arr="manual">
+            人工安排
+          </button>
+          <button type="button" class="sheet-btn" id="daily-arr-smart" data-arr="smart">智能安排</button>
+        </div>
+      </section>
+
+      <section class="card tags-card" id="tags-card" aria-label="类别标签">
+        <div class="tags-head">
+          <h2 class="tags-title">类别标签</h2>
+        </div>
+        <ul class="tag-list" id="tag-list"></ul>
+        <form class="tag-add-form" id="tag-form" autocomplete="off">
+          <input id="tag-input" class="tag-add-input" type="text" maxlength="12" />
+          <button type="submit" class="btn btn-soft">添加标签</button>
+        </form>
+      </section>
+
+      <div class="compose-toolbar" id="compose-toolbar">
+        <button
+          type="button"
+          class="btn btn-add-task"
+          id="btn-toggle-compose"
+          aria-expanded="false"
+          aria-controls="compose-panel"
+        >
+          添加任务
+        </button>
+      </div>
+
+      <section class="card compose compose--panel" id="compose-panel" hidden>
+        <form class="compose-form" id="todo-form" autocomplete="off">
+          <div class="compose-row">
+            <label class="sr-only" for="category-select">类别</label>
+            <select id="category-select" class="compose-select"></select>
+            <label class="sr-only" for="todo-input">标题</label>
+            <input id="todo-input" class="compose-input" type="text" maxlength="200" />
+          </div>
+
+          <div class="compose-extra" id="compose-daily-extra" hidden>
+            <div class="compose-time-row">
+              <label class="compose-field compose-field--inline">
+                <span class="compose-field-label">从</span>
+                <input type="time" id="daily-time-start" class="compose-input compose-input--sm" step="60" />
+              </label>
+              <label class="compose-field compose-field--inline">
+                <span class="compose-field-label">到</span>
+                <input type="time" id="daily-time-end" class="compose-input compose-input--sm" step="60" />
+              </label>
+            </div>
+          </div>
+
+          <div class="compose-extra" id="compose-comprehensive-extra" hidden>
+            <div class="compose-extra-grid">
+              <label class="compose-field">
+                <span class="compose-field-label">截止日期</span>
+                <input type="date" id="comp-deadline" class="compose-input compose-input--sm" />
+              </label>
+              <label class="compose-field">
+                <span class="compose-field-label">计划完成（天）</span>
+                <input
+                  type="number"
+                  id="comp-plan-days"
+                  class="compose-input compose-input--sm"
+                  min="1"
+                  max="9999"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div class="compose-extra compose-extra--urgency">
+            <span class="compose-field-label">紧迫度</span>
+            <div class="star-picker" id="compose-urgency"></div>
+          </div>
+
+          <div class="compose-actions">
+            <button type="submit" class="btn btn-primary compose-submit">确认添加</button>
+            <button type="button" class="btn btn-ghost" id="btn-cancel-compose">取消</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card list-wrap">
+        <div class="list-head">
+          <h2 class="list-title" id="list-title">每日 · 待完成</h2>
+          <span class="badge" id="count-badge">0</span>
+        </div>
+        <div id="list-container"></div>
+      </section>
+
+      <footer class="foot">
+        <button type="button" class="link-btn" id="clear-done">清除已完成</button>
+      </footer>
+    </main>
+
+    <div id="time-conflict-modal" class="modal-overlay" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="time-conflict-title">
+        <h2 class="modal-title" id="time-conflict-title">时间冲突</h2>
+        <p class="modal-msg" id="time-conflict-msg"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-primary" id="time-conflict-overwrite">
+            覆盖另一任务时段
+          </button>
+          <button type="button" class="btn btn-ghost" id="time-conflict-retry">重新填写时间</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 智能安排：请求你云服务器上的代理（与页面同域时可用默认 /api/smart-schedule）。跨域请取消注释并改为完整地址： -->
+    <!-- <script>window.SMART_SCHEDULE_API_URL = "https://你的域名/api/smart-schedule";</script> -->
+    <script src="app.js"></script>
+  </body>
+</html>

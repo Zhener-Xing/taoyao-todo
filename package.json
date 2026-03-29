@@ -1,0 +1,13 @@
+{
+  "name": "todolist-smart-schedule-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DeepSeek 智能安排代理，仅 Node 内置模块，无需 npm install",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}

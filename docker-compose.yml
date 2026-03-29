@@ -1,0 +1,16 @@
+# 在项目根目录执行: docker compose up -d
+# 需设置环境变量 DEEPSEEK_API_KEY，或在本目录创建 .env 文件
+
+services:
+  smart-schedule-api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      PORT: "3000"
+      # 前端与 API 不同域时，设为静态页域名，例如: https://todo.example.com
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+    restart: unless-stopped
