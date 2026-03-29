@@ -1,7 +1,7 @@
 {
-  "name": "小清单",
-  "short_name": "小清单",
-  "description": "每日与综合任务清单",
+  "name": "桃夭todo",
+  "short_name": "桃夭todo",
+  "description": "桃夭todo · 每日与综合任务清单",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
