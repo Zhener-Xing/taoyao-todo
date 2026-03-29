@@ -1,22 +1,14 @@
-# 桃夭todo：静态前端 + 智能安排 API（构建上下文为项目根目录）
+# 基础镜像（轻量、稳定）
 FROM node:20-alpine
 
+# 设置工作目录
 WORKDIR /app
 
-COPY server/index.js ./
+# 【关键】复制项目所有文件（不指定任何错误路径，永远不报错）
+COPY . .
 
-RUN mkdir -p public
-
-COPY index.html app.js styles.css manifest.webmanifest ./public/
-COPY apple-touch-icon.png ./public/
-
-RUN chown -R node:node /app
-
-ENV NODE_ENV=production
-ENV PORT=3000
-
+# 开放端口 3000
 EXPOSE 3000
 
-USER node
-
+# 启动你的根目录 index.js（你真实的入口文件）
 CMD ["node", "index.js"]
