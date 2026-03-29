@@ -6,7 +6,24 @@ const fs = require("fs");
 const path = require("path");
 
 const PORT = Number(process.env.PORT) || 3000;
-const STATIC_ROOT = path.join(__dirname, "public");
+
+function resolveStaticRoot() {
+  const pub = path.join(__dirname, "public");
+  const indexInPub = path.join(pub, "index.html");
+  if (fs.existsSync(indexInPub)) {
+    return pub;
+  }
+  const indexNext = path.join(__dirname, "index.html");
+  if (fs.existsSync(indexNext)) {
+    console.warn(
+      "桃夭todo: 在 public/ 未找到 index.html，改用与 index.js 同目录的静态文件（请确认 Docker 已 COPY 到 /app/public/）"
+    );
+    return __dirname;
+  }
+  return pub;
+}
+
+const STATIC_ROOT = resolveStaticRoot();
 
 const DEEPSEEK_URL =
   process.env.DEEPSEEK_API_URL || "https://api.deepseek.com/chat/completions";
@@ -90,6 +107,7 @@ function serveStaticFile(req, res, filePath) {
   fs.readFile(filePath, (err, data) => {
     if (err) {
       if (err.code === "ENOENT") {
+        console.error("[static] 404 找不到文件:", filePath);
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
         res.end("Not Found");
       } else {
@@ -113,7 +131,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const host = req.headers.host || "localhost";
     const url = new URL(req.url || "/", `http://${host}`);
-    const pathname = url.pathname;
+    const pathname = (url.pathname.replace(/\/+/g, "/") || "/").replace(/\/$/, "") || "/";
 
     if (req.method === "OPTIONS") {
       res.writeHead(204, corsHeaders(req));
@@ -209,7 +227,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
+  const ok = fs.existsSync(path.join(STATIC_ROOT, "index.html"));
   console.log(
-    `桃夭todo：静态页 + 智能安排 API 已监听 :${PORT}（无 npm 依赖，文件目录 public/）`
+    `桃夭todo：监听 :${PORT} | 静态目录 ${STATIC_ROOT} | index.html ${ok ? "已就绪" : "缺失，请从仓库根目录构建镜像"}`
   );
 });
