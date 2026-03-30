@@ -954,6 +954,13 @@ body {
   padding: 0.25rem 0;
 }
 
+.smart-draft-hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 .smart-draft-table {
   display: flex;
   flex-direction: column;
