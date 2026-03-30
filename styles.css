@@ -1016,6 +1016,10 @@ body {
   margin-top: 0.1rem;
 }
 
+.smart-draft-row-footer .smart-draft-commit {
+  flex-shrink: 0;
+}
+
 .smart-draft-row--locked {
   align-items: flex-start;
   padding: 0.5rem 0.65rem;
