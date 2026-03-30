@@ -1000,6 +1000,15 @@ body {
   max-width: 100%;
 }
 
+.smart-draft-row-footer {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 0.85rem;
+  margin-top: 0.1rem;
+}
+
 .smart-draft-row--locked {
   align-items: flex-start;
   padding: 0.5rem 0.65rem;
