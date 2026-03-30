@@ -734,7 +734,8 @@
         categoryId: it.categoryId || UNCATEGORIZED_ID,
         expectedDurationMinutes,
         timeMode: "block",
-        locked: true,
+        // 从人工表同步后先展示可编辑表单，便于用户看到「添加」并逐条确认；勿默认 locked（否则只显示摘要与「编辑」）。
+        locked: false,
       };
     });
   }
@@ -1228,6 +1229,10 @@
     root.className = "smart-wizard";
 
     if (sp.step === 1) {
+      const hint = document.createElement("p");
+      hint.className = "smart-draft-hint";
+      hint.textContent =
+        "每条任务填写后请点击该行下方的「添加」以确认；确认后变为摘要，需要改动时点「编辑」。从人工安排同步来的任务也会先显示表单。";
       const table = document.createElement("div");
       table.className = "smart-draft-table";
       sp.draftTasks.forEach((t, idx) => {
@@ -1288,7 +1293,7 @@
       nextBtn.type = "button";
       nextBtn.className = "btn btn-primary smart-step-next";
       nextBtn.textContent = "下一步";
-      root.append(table, addBtn, nextBtn);
+      root.append(hint, table, addBtn, nextBtn);
     } else if (sp.step === 2) {
       root.innerHTML = `
         <div class="smart-step2-grid">
