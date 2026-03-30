@@ -25,6 +25,7 @@
 6. 尽量在时间较整时安排任务开始；
 7. 最低安排单位为分钟；
 8. 对于要求时间连续的任务优先安排连续时间。
+9. 所有任务的 timeStart、timeEnd 必须同时满足：① 不早于「开始工作时间」、不晚于「结束工作时间」所框定的当日时间范围；② 若「可工作时段」语段中用 6:00-7:30、18:40-20:30 等形式写出了具体时段，则任务整段必须落在某一语段所描述的时间范围内；不得安排在可工作时段之外。
 
 你必须只输出一个 JSON 对象，不要使用 markdown 代码块，不要添加任何解释文字。格式严格如下：
 {"items":[{"taskId":"与输入任务 id 完全一致","timeStart":"HH:MM","timeEnd":"HH:MM"}]}
@@ -187,6 +188,7 @@
             timeMode: t.timeMode === "fragment" ? "fragment" : "block",
             categoryId:
               typeof t.categoryId === "string" && t.categoryId ? t.categoryId : UNCATEGORIZED_ID,
+            locked: !!t.locked,
           };
         })
       : [];
@@ -534,8 +536,67 @@
         categoryId: it.categoryId || UNCATEGORIZED_ID,
         expectedDurationMinutes,
         timeMode: "block",
+        locked: true,
       };
     });
+  }
+
+  /** 从「可工作时段」文本中解析 H:MM–H:MM（支持 -–至到 与半角冒号），并与全局起止时间求交后得到若干合法区间（分钟）。 */
+  function buildAllowedIntervalsFromWorkPlan(sp) {
+    const ws = sp.workStart ? timeToMinutes(sp.workStart) : null;
+    const we = sp.workEnd ? timeToMinutes(sp.workEnd) : null;
+    if (ws == null || we == null || we <= ws) {
+      return [];
+    }
+    const globalSeg = { start: ws, end: we };
+    const text = sp.workSlots || "";
+    const re = /(\d{1,2})[:：](\d{2})\s*[\-–—至到]\s*(\d{1,2})[:：](\d{2})/g;
+    const segments = [];
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const sh = parseInt(m[1], 10);
+      const sm = parseInt(m[2], 10);
+      const eh = parseInt(m[3], 10);
+      const em = parseInt(m[4], 10);
+      if (sh > 23 || eh > 23 || sm > 59 || em > 59) continue;
+      let s = sh * 60 + sm;
+      let e = eh * 60 + em;
+      if (e <= s) continue;
+      s = Math.max(s, ws);
+      e = Math.min(e, we);
+      if (e > s) segments.push({ start: s, end: e });
+    }
+    if (segments.length === 0) {
+      return [globalSeg];
+    }
+    return segments;
+  }
+
+  function taskIntervalInsideAllowedSegments(ts, te, segments) {
+    if (ts == null || te == null || te <= ts) return false;
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (ts >= seg.start && te <= seg.end) return true;
+    }
+    return false;
+  }
+
+  function assertScheduleWithinWorkPlan(sp, builtItems) {
+    const intervals = buildAllowedIntervalsFromWorkPlan(sp);
+    if (intervals.length === 0) {
+      throw new Error("请先在第二步填写有效的开始、结束工作时间。");
+    }
+    for (let i = 0; i < builtItems.length; i++) {
+      const it = builtItems[i];
+      const ts = timeToMinutes(it.timeStart);
+      const te = timeToMinutes(it.timeEnd);
+      if (!taskIntervalInsideAllowedSegments(ts, te, intervals)) {
+        const title = (it.text && String(it.text).trim()) || "任务";
+        throw new Error(
+          `「${title}」的时段 ${it.timeStart}–${it.timeEnd} 不在可工作时段内（须在开始/结束工作时间范围内，且若语段中标出了如 6:00-7:30 的时段，须落在其中一段内）。请重新生成或回到第二步调整。`
+        );
+      }
+    }
   }
 
   function mergeDraftIntoDailyItems() {
@@ -972,9 +1033,25 @@
       table.className = "smart-draft-table";
       sp.draftTasks.forEach((t, idx) => {
         const row = document.createElement("div");
-        row.className = "smart-draft-row";
         row.dataset.index = String(idx);
         const tm = t.timeMode === "fragment" ? "fragment" : "block";
+        if (t.locked) {
+          row.className = "smart-draft-row smart-draft-row--locked";
+          row.innerHTML = `
+            <div class="smart-draft-locked-main">
+              <div class="smart-draft-locked-title">${escapeHtml(t.text || "（无标题）")}</div>
+              <div class="smart-draft-locked-meta">${urgencyStarsText(t.urgency)} · ${escapeHtml(
+            draftCategoryLabel(t.categoryId || UNCATEGORIZED_ID)
+          )} · ${escapeHtml(formatDurationMinutesCell(t.expectedDurationMinutes))} · ${escapeHtml(
+            draftTimeModeLabel(tm)
+          )}</div>
+            </div>
+            <button type="button" class="btn-text smart-draft-edit" data-index="${idx}">编辑</button>
+            <button type="button" class="btn-text smart-remove-row" data-index="${idx}">移除</button>`;
+          table.appendChild(row);
+          return;
+        }
+        row.className = "smart-draft-row";
         const hm = splitMinutesToHourMinuteDisplay(t.expectedDurationMinutes);
         row.innerHTML = `
           <input type="text" class="compose-input smart-draft-title" value="${escapeAttr(t.text)}" maxlength="200" />
@@ -1018,7 +1095,7 @@
           <label class="compose-field"><span class="compose-field-label">结束工作时间</span>
             <input type="time" id="smart-work-end" class="compose-input compose-input--sm" step="60" value="${sp.workEnd || ""}" /></label>
           <label class="compose-field compose-field--block"><span class="compose-field-label">可工作时段</span>
-            <textarea id="smart-work-slots" class="compose-textarea" rows="3">${escapeHtml(sp.workSlots)}</textarea></label>
+            <textarea id="smart-work-slots" class="compose-textarea" rows="5" placeholder="每行描述一段可工作的时间，可用自然语言或具体时间，例如：&#10;6:00-7:30&#10;六点四十至八点半&#10;晚上九点以后（仍须在上方开始/结束工作时间内）">${escapeHtml(sp.workSlots)}</textarea></label>
           <div class="compose-field"><span class="compose-field-label">任务表弹性</span>
             <div class="star-picker smart-flex-picker" id="smart-flex-picker">${renderStarsHtml(sp.flexibility)}</div></div>
         </div>
@@ -1139,6 +1216,8 @@
         workStart: sp.workStart,
         workEnd: sp.workEnd,
         workSlotsDescription: sp.workSlots || "",
+        note:
+          "开始/结束工作时间定义当日总可用范围；可工作时段为多行语段。若语段中出现 6:00-7:30、18:40-20:30 等具体时间，任务必须整段落在其中某一区间内；自然语言描述须结合语意理解，且不得超出开始/结束工作时间。",
       },
       flexibilityStars: sp.flexibility,
       tasks: sp.draftTasks.map((t) => ({
@@ -1191,7 +1270,7 @@
     }
     const byId = new Map(items.map((it) => [String(it.taskId), it]));
     const catOk = (id) => state.daily.categories.some((c) => c.id === id);
-    return sp.draftTasks.map((draft, i) => {
+    const built = sp.draftTasks.map((draft, i) => {
       let row = byId.get(String(draft.id));
       if (!row) row = items[i];
       if (!row || row.timeStart == null || row.timeEnd == null) {
@@ -1221,6 +1300,8 @@
         timeEnd,
       };
     });
+    assertScheduleWithinWorkPlan(sp, built);
+    return built;
   }
 
   function commitAiScheduleItems(newItems) {
@@ -1380,12 +1461,24 @@
     const rows = listContainer.querySelectorAll(".smart-draft-row");
     const draftTasks = [];
     rows.forEach((row, i) => {
+      const prev = state.daily.smartPlan.draftTasks[i] || { id: uid(), urgency: 1, locked: false };
+      if (prev.locked || row.classList.contains("smart-draft-row--locked")) {
+        draftTasks.push({
+          id: prev.id || uid(),
+          text: typeof prev.text === "string" ? prev.text : "",
+          urgency: Math.min(5, Math.max(1, parseInt(prev.urgency, 10) || 1)),
+          categoryId: prev.categoryId || UNCATEGORIZED_ID,
+          expectedDurationMinutes: prev.expectedDurationMinutes,
+          timeMode: prev.timeMode === "fragment" ? "fragment" : "block",
+          locked: true,
+        });
+        return;
+      }
       const title = row.querySelector(".smart-draft-title");
       const hEl = row.querySelector(".smart-draft-hours");
       const mEl = row.querySelector(".smart-draft-minutes");
       const modeEl = row.querySelector(".smart-draft-time-mode");
       const catEl = row.querySelector(".smart-draft-cat");
-      const prev = state.daily.smartPlan.draftTasks[i] || { id: uid(), urgency: 1 };
       const timeMode = modeEl && modeEl.value === "fragment" ? "fragment" : "block";
       let h = hEl && hEl.value.trim() !== "" ? parseInt(hEl.value.trim(), 10) : 0;
       let mm = mEl && mEl.value.trim() !== "" ? parseInt(mEl.value.trim(), 10) : 0;
@@ -1400,13 +1493,20 @@
       if (catEl && catEl.value && state.daily.categories.some((c) => c.id === catEl.value)) {
         categoryId = catEl.value;
       }
+      let urgency = prev.urgency;
+      const starWrap = row.querySelector(".smart-draft-stars");
+      if (starWrap) {
+        const on = starWrap.querySelectorAll(".star-btn.is-on");
+        if (on.length) urgency = on.length;
+      }
       draftTasks.push({
         id: prev.id || uid(),
         text: title ? title.value.trim() : "",
-        urgency: prev.urgency,
+        urgency: Math.min(5, Math.max(1, urgency || 1)),
         categoryId,
         expectedDurationMinutes,
         timeMode,
+        locked: false,
       });
     });
     state.daily.smartPlan.draftTasks = draftTasks;
@@ -1423,7 +1523,23 @@
       return;
     }
 
+    if (e.target.closest(".smart-draft-edit")) {
+      collectSmartDraftFromDom();
+      const btn = e.target.closest(".smart-draft-edit");
+      const idx = +btn.dataset.index;
+      if (sp.draftTasks[idx]) {
+        sp.draftTasks[idx].locked = false;
+        save();
+        render();
+      }
+      return;
+    }
+
     if (e.target.closest(".smart-add-row")) {
+      collectSmartDraftFromDom();
+      if (sp.draftTasks.length > 0) {
+        sp.draftTasks[sp.draftTasks.length - 1].locked = true;
+      }
       const preferred =
         (categorySelect && categorySelect.value) ||
         state.daily.categories.find((c) => c.id !== UNCATEGORIZED_ID)?.id ||
@@ -1435,6 +1551,7 @@
         categoryId: preferred,
         expectedDurationMinutes: null,
         timeMode: "block",
+        locked: false,
       });
       save();
       render();
@@ -1442,6 +1559,7 @@
     }
 
     if (e.target.closest(".smart-remove-row")) {
+      collectSmartDraftFromDom();
       const btn = e.target.closest(".smart-remove-row");
       const idx = +btn.dataset.index;
       sp.draftTasks.splice(idx, 1);
