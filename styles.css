@@ -1000,6 +1000,33 @@ body {
   max-width: 100%;
 }
 
+.smart-draft-row--locked {
+  align-items: flex-start;
+  padding: 0.5rem 0.65rem;
+  border-radius: 12px;
+  background: #fffafc;
+  border: 1px solid var(--accent-soft);
+  gap: 0.5rem;
+}
+
+.smart-draft-locked-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.smart-draft-locked-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+  word-break: break-word;
+}
+
+.smart-draft-locked-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .smart-exp-wrap {
   display: inline-flex;
   align-items: center;
