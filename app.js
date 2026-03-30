@@ -391,6 +391,204 @@
     return h * 60 + min;
   }
 
+  /** 解析中文数字（0–99 常见写法），用于时点与分。 */
+  function parseCnIntGeneral(s) {
+    s = String(s || "")
+      .trim()
+      .replace(/\s+/g, "");
+    if (!s) return NaN;
+    if (/^\d+$/.test(s)) {
+      const n = parseInt(s, 10);
+      return n;
+    }
+    if (s === "半") return 30;
+    const map = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+    if (s.length === 1 && map[s] !== undefined) return map[s];
+    if (s.includes("十")) {
+      const parts = s.split("十");
+      let tens;
+      if (parts[0] === "") tens = 1;
+      else if (map[parts[0]] !== undefined) tens = map[parts[0]];
+      else return NaN;
+      const rest = parts[1] || "";
+      if (rest === "") return tens * 10;
+      const ones = parseCnIntGeneral(rest);
+      if (Number.isNaN(ones)) return NaN;
+      return tens * 10 + ones;
+    }
+    return NaN;
+  }
+
+  function applyChinesePeriod(period, hour, minute) {
+    const p = period || "";
+    if (!p) return { H: hour, min: minute };
+    if (p === "凌晨" || p === "早上" || p === "上午") return { H: hour, min: minute };
+    if (p === "中午") {
+      if (hour === 12) return { H: 12, min: minute };
+      if (hour >= 1 && hour <= 4) return { H: 12 + hour, min: minute };
+      return { H: hour, min: minute };
+    }
+    if (p === "下午") {
+      if (hour === 12) return { H: 12, min: minute };
+      if (hour >= 1 && hour <= 11) return { H: 12 + hour, min: minute };
+      return { H: hour, min: minute };
+    }
+    if (p === "晚上" || p === "夜里" || p === "晚间" || p === "深夜") {
+      if (hour === 12) return { H: 23, min: 59 };
+      if (hour >= 1 && hour <= 11) return { H: 12 + hour, min: minute };
+      return { H: hour, min: minute };
+    }
+    return { H: hour, min: minute };
+  }
+
+  /** 将自然语言或数字时钟片段解析为从 0:00 起的分钟数。 */
+  function parseChineseTimePhrase(raw) {
+    const s0 = String(raw || "").trim().replace(/\s+/g, "");
+    if (!s0) return null;
+    const dig = s0.match(/^(\d{1,2})[:：](\d{2})$/);
+    if (dig) {
+      const h = parseInt(dig[1], 10);
+      const min = parseInt(dig[2], 10);
+      if (h > 23 || min > 59) return null;
+      return h * 60 + min;
+    }
+    const periods = ["凌晨", "早上", "上午", "中午", "下午", "晚上", "夜里", "晚间", "深夜"];
+    let period = "";
+    let rest = s0;
+    for (let i = 0; i < periods.length; i++) {
+      const p = periods[i];
+      if (rest.startsWith(p)) {
+        period = p;
+        rest = rest.slice(p.length);
+        break;
+      }
+    }
+    const m = rest.match(/^([〇零一二三四五六七八九十两]+|\d{1,2})点(.*)$/);
+    if (!m) return null;
+    const hourRaw = parseCnIntGeneral(m[1]);
+    if (Number.isNaN(hourRaw) || hourRaw > 23) return null;
+    let tail = (m[2] || "").replace(/分$/g, "").trim();
+    let minute = 0;
+    if (tail === "" || tail === undefined) minute = 0;
+    else if (tail === "半") minute = 30;
+    else {
+      minute = parseCnIntGeneral(tail);
+      if (Number.isNaN(minute) || minute > 59) return null;
+    }
+    const { H, min: mm } = applyChinesePeriod(period, hourRaw, minute);
+    if (H < 0 || H > 23 || mm > 59) return null;
+    return H * 60 + mm;
+  }
+
+  function parseTimeFlexible(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return null;
+    return parseChineseTimePhrase(s);
+  }
+
+  function formatHM(totalMin) {
+    const h = Math.floor(totalMin / 60);
+    const mm = totalMin % 60;
+    return `${h}:${String(mm).padStart(2, "0")}`;
+  }
+
+  /** 从一行可工作时段解析出与全局 [ws,we] 求交后的区间；失败返回 null。 */
+  function parseWorkSlotLine(trimmed, ws, we) {
+    const openM = trimmed.match(/^(.+?)\s*(以后|之后|以後)\s*$/);
+    if (openM) {
+      const startMin = parseTimeFlexible(openM[1].trim());
+      if (startMin == null) return null;
+      const s = Math.max(startMin, ws);
+      const e = we;
+      if (e <= s) return null;
+      return {
+        start: s,
+        end: e,
+        normalizedLine: `${formatHM(s)}–${formatHM(e)}`,
+      };
+    }
+    const rangeM = trimmed.match(/^(.+?)\s*[-–—至到]\s*(.+)$/);
+    if (rangeM) {
+      const a = parseTimeFlexible(rangeM[1].trim());
+      const b = parseTimeFlexible(rangeM[2].trim());
+      if (a == null || b == null) return null;
+      let s = Math.min(a, b);
+      let e = Math.max(a, b);
+      s = Math.max(s, ws);
+      e = Math.min(e, we);
+      if (e <= s) return null;
+      return {
+        start: s,
+        end: e,
+        normalizedLine: `${formatHM(s)}–${formatHM(e)}`,
+      };
+    }
+    return null;
+  }
+
+  function tryParseDigitalRangeLine(trimmed, ws, we) {
+    const re = /(\d{1,2})[:：](\d{2})\s*[-–—至到]\s*(\d{1,2})[:：](\d{2})/;
+    const m = trimmed.match(re);
+    if (!m) return null;
+    const sh = parseInt(m[1], 10);
+    const sm = parseInt(m[2], 10);
+    const eh = parseInt(m[3], 10);
+    const em = parseInt(m[4], 10);
+    if (sh > 23 || eh > 23 || sm > 59 || em > 59) return null;
+    let s = sh * 60 + sm;
+    let e = eh * 60 + em;
+    if (e <= s) return null;
+    s = Math.max(s, ws);
+    e = Math.min(e, we);
+    if (e <= s) return null;
+    return { start: s, end: e };
+  }
+
+  /** 一行内可能出现的多个 H:MM–H:MM 片段（与全局起止时间求交）。 */
+  function collectDigitalRangesInString(str, ws, we) {
+    const re = /(\d{1,2})[:：](\d{2})\s*[-–—至到]\s*(\d{1,2})[:：](\d{2})/g;
+    const out = [];
+    let m;
+    while ((m = re.exec(str)) !== null) {
+      const sh = parseInt(m[1], 10);
+      const sm = parseInt(m[2], 10);
+      const eh = parseInt(m[3], 10);
+      const em = parseInt(m[4], 10);
+      if (sh > 23 || eh > 23 || sm > 59 || em > 59) continue;
+      let s = sh * 60 + sm;
+      let e = eh * 60 + em;
+      if (e <= s) continue;
+      s = Math.max(s, ws);
+      e = Math.min(e, we);
+      if (e > s) out.push({ start: s, end: e });
+    }
+    return out;
+  }
+
+  /** 将可工作时段多行文本转为数字时钟区间展示（供校验与 API）。 */
+  function getNormalizedWorkSlotsDescription(sp) {
+    const ws = sp.workStart ? timeToMinutes(sp.workStart) : null;
+    const we = sp.workEnd ? timeToMinutes(sp.workEnd) : null;
+    const text = sp.workSlots || "";
+    if (ws == null || we == null || we <= ws) return text;
+    return String(text)
+      .split(/\r?\n/)
+      .map((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return line;
+        const parsed = parseWorkSlotLine(trimmed, ws, we);
+        if (parsed) return parsed.normalizedLine;
+        const dig = tryParseDigitalRangeLine(trimmed, ws, we);
+        if (dig) return `${formatHM(dig.start)}–${formatHM(dig.end)}`;
+        const multi = collectDigitalRangesInString(trimmed, ws, we);
+        if (multi.length) {
+          return multi.map((seg) => `${formatHM(seg.start)}–${formatHM(seg.end)}`).join("；");
+        }
+        return trimmed;
+      })
+      .join("\n");
+  }
+
   function dailyTimeSortKey(item) {
     const start = timeToMinutes(item.timeStart);
     const end = timeToMinutes(item.timeEnd);
@@ -541,7 +739,7 @@
     });
   }
 
-  /** 从「可工作时段」文本中解析 H:MM–H:MM（支持 -–至到 与半角冒号），并与全局起止时间求交后得到若干合法区间（分钟）。 */
+  /** 从「可工作时段」文本中解析时段（含中文自然语言，先归一为数字时钟再求交），并与全局起止时间求交后得到若干合法区间（分钟）。 */
   function buildAllowedIntervalsFromWorkPlan(sp) {
     const ws = sp.workStart ? timeToMinutes(sp.workStart) : null;
     const we = sp.workEnd ? timeToMinutes(sp.workEnd) : null;
@@ -550,21 +748,22 @@
     }
     const globalSeg = { start: ws, end: we };
     const text = sp.workSlots || "";
-    const re = /(\d{1,2})[:：](\d{2})\s*[\-–—至到]\s*(\d{1,2})[:：](\d{2})/g;
     const segments = [];
-    let m;
-    while ((m = re.exec(text)) !== null) {
-      const sh = parseInt(m[1], 10);
-      const sm = parseInt(m[2], 10);
-      const eh = parseInt(m[3], 10);
-      const em = parseInt(m[4], 10);
-      if (sh > 23 || eh > 23 || sm > 59 || em > 59) continue;
-      let s = sh * 60 + sm;
-      let e = eh * 60 + em;
-      if (e <= s) continue;
-      s = Math.max(s, ws);
-      e = Math.min(e, we);
-      if (e > s) segments.push({ start: s, end: e });
+    const lines = text.split(/\r?\n/);
+    for (let li = 0; li < lines.length; li++) {
+      const trimmed = lines[li].trim();
+      if (!trimmed) continue;
+      const parsed = parseWorkSlotLine(trimmed, ws, we);
+      if (parsed) {
+        segments.push({ start: parsed.start, end: parsed.end });
+        continue;
+      }
+      const dig = tryParseDigitalRangeLine(trimmed, ws, we);
+      if (dig) {
+        segments.push({ start: dig.start, end: dig.end });
+        continue;
+      }
+      collectDigitalRangesInString(trimmed, ws, we).forEach((seg) => segments.push(seg));
     }
     if (segments.length === 0) {
       return [globalSeg];
@@ -1075,7 +1274,10 @@
             <option value="block" ${tm === "block" ? "selected" : ""}>必须整块时间完成</option>
             <option value="fragment" ${tm === "fragment" ? "selected" : ""}>可碎片化时间完成</option>
           </select>
-          <button type="button" class="btn-text smart-remove-row" data-index="${idx}">移除</button>`;
+          <div class="smart-draft-row-footer">
+            <button type="button" class="btn-text smart-draft-commit" data-index="${idx}">添加</button>
+            <button type="button" class="btn-text smart-remove-row" data-index="${idx}">移除</button>
+          </div>`;
         table.appendChild(row);
       });
       const addBtn = document.createElement("button");
@@ -1197,6 +1399,9 @@
     }
     for (let i = 0; i < sp.draftTasks.length; i++) {
       const t = sp.draftTasks[i];
+      if (!t.locked) {
+        return { ok: false, message: "请先在第一步为每条任务点击「添加」确认，再生成安排。" };
+      }
       if (!t.text || !String(t.text).trim()) {
         return { ok: false, message: `第 ${i + 1} 行任务标题不能为空。` };
       }
@@ -1211,13 +1416,15 @@
   }
 
   function buildSmartScheduleUserPayload(sp) {
+    const slotsNorm = getNormalizedWorkSlotsDescription(sp);
     return {
       workWindow: {
         workStart: sp.workStart,
         workEnd: sp.workEnd,
         workSlotsDescription: sp.workSlots || "",
+        workSlotsNormalized: slotsNorm,
         note:
-          "开始/结束工作时间定义当日总可用范围；可工作时段为多行语段。若语段中出现 6:00-7:30、18:40-20:30 等具体时间，任务必须整段落在其中某一区间内；自然语言描述须结合语意理解，且不得超出开始/结束工作时间。",
+          "开始/结束工作时间定义当日总可用范围；可工作时段为多行语段。workSlotsNormalized 已将自然语言时间转为数字时钟区间（如 6:40–8:30）；若语段中出现具体时间，任务必须整段落在其中某一区间内，且不得超出开始/结束工作时间。",
       },
       flexibilityStars: sp.flexibility,
       tasks: sp.draftTasks.map((t) => ({
@@ -1535,11 +1742,29 @@
       return;
     }
 
+    if (e.target.closest(".smart-draft-commit")) {
+      collectSmartDraftFromDom();
+      const btn = e.target.closest(".smart-draft-commit");
+      const idx = +btn.dataset.index;
+      const t = sp.draftTasks[idx];
+      if (!t || t.locked) return;
+      const title = (t.text && String(t.text).trim()) || "";
+      if (!title) {
+        window.alert("请填写任务标题后再点击添加。");
+        return;
+      }
+      if (t.expectedDurationMinutes == null || t.expectedDurationMinutes < 1) {
+        window.alert("请填写预计完成时间（小时与分钟，合计至少 1 分钟）后再点击添加。");
+        return;
+      }
+      sp.draftTasks[idx].locked = true;
+      save();
+      render();
+      return;
+    }
+
     if (e.target.closest(".smart-add-row")) {
       collectSmartDraftFromDom();
-      if (sp.draftTasks.length > 0) {
-        sp.draftTasks[sp.draftTasks.length - 1].locked = true;
-      }
       const preferred =
         (categorySelect && categorySelect.value) ||
         state.daily.categories.find((c) => c.id !== UNCATEGORIZED_ID)?.id ||
@@ -1570,6 +1795,27 @@
 
     if (e.target.closest(".smart-step-next")) {
       collectSmartDraftFromDom();
+      if (!sp.draftTasks.length) {
+        window.alert("请至少添加一项任务。");
+        return;
+      }
+      for (let i = 0; i < sp.draftTasks.length; i++) {
+        const t = sp.draftTasks[i];
+        if (!t.locked) {
+          window.alert(`请先点击第 ${i + 1} 条任务下方的「添加」，确认该任务后再进入下一步。`);
+          return;
+        }
+        if (!t.text || !String(t.text).trim()) {
+          window.alert(`第 ${i + 1} 行任务标题不能为空。`);
+          return;
+        }
+        if (t.expectedDurationMinutes == null || t.expectedDurationMinutes < 1) {
+          window.alert(
+            `请为「${String(t.text).trim()}」填写预计完成时间（小时与分钟，合计至少 1 分钟）。`
+          );
+          return;
+        }
+      }
       sp.step = 2;
       save();
       render();
