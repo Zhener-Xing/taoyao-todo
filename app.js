@@ -29,7 +29,7 @@
 
 你必须只输出一个 JSON 对象，不要使用 markdown 代码块，不要添加任何解释文字。格式严格如下：
 {"items":[{"taskId":"与输入任务 id 完全一致","timeStart":"HH:MM","timeEnd":"HH:MM"}]}
-每项输入任务对应一条 items 记录；timeStart、timeEnd 为 24 小时制，且 timeEnd 晚于 timeStart。`;
+tasks 数组中每一条已确认的任务对应一条 items 记录（条数须与 tasks 一致）；timeStart、timeEnd 为 24 小时制，且 timeEnd 晚于 timeStart。`;
 
   let smartAiLoading = false;
 
@@ -188,7 +188,7 @@
             timeMode: t.timeMode === "fragment" ? "fragment" : "block",
             categoryId:
               typeof t.categoryId === "string" && t.categoryId ? t.categoryId : UNCATEGORIZED_ID,
-            locked: !!t.locked,
+            confirmed: t.confirmed !== undefined ? !!t.confirmed : !!t.locked,
           };
         })
       : [];
@@ -734,8 +734,7 @@
         categoryId: it.categoryId || UNCATEGORIZED_ID,
         expectedDurationMinutes,
         timeMode: "block",
-        // 从人工表同步后先展示可编辑表单，便于用户看到「添加」并逐条确认；勿默认 locked（否则只显示摘要与「编辑」）。
-        locked: false,
+        confirmed: false,
       };
     });
   }
@@ -797,6 +796,11 @@
         );
       }
     }
+  }
+
+  /** 是否已点「添加」变为只读摘要（兼容旧字段 locked）。 */
+  function isDraftConfirmed(t) {
+    return !!(t && (t.confirmed === true || t.locked === true));
   }
 
   function mergeDraftIntoDailyItems() {
@@ -1232,14 +1236,14 @@
       const hint = document.createElement("p");
       hint.className = "smart-draft-hint";
       hint.textContent =
-        "每条任务填写后请点击该行下方的「添加」以确认；确认后变为摘要，需要改动时点「编辑」。从人工安排同步来的任务也会先显示表单。";
+        "未点「添加」时内容也会在输入时自动保存，添加新行不会丢失。点「添加」后该条变为只读摘要并出现「编辑」。仅已点「添加」的任务会交给 AI 安排。";
       const table = document.createElement("div");
       table.className = "smart-draft-table";
       sp.draftTasks.forEach((t, idx) => {
         const row = document.createElement("div");
         row.dataset.index = String(idx);
         const tm = t.timeMode === "fragment" ? "fragment" : "block";
-        if (t.locked) {
+        if (isDraftConfirmed(t)) {
           row.className = "smart-draft-row smart-draft-row--locked";
           row.innerHTML = `
             <div class="smart-draft-locked-main">
@@ -1280,7 +1284,7 @@
             <option value="fragment" ${tm === "fragment" ? "selected" : ""}>可碎片化时间完成</option>
           </select>
           <div class="smart-draft-row-footer">
-            <button type="button" class="btn-text smart-draft-commit" data-index="${idx}">添加</button>
+            <button type="button" class="btn btn-soft smart-draft-commit" data-index="${idx}">添加</button>
             <button type="button" class="btn-text smart-remove-row" data-index="${idx}">移除</button>
           </div>`;
         table.appendChild(row);
@@ -1402,16 +1406,17 @@
     if (!sp.draftTasks.length) {
       return { ok: false, message: "请至少添加一项任务。" };
     }
-    for (let i = 0; i < sp.draftTasks.length; i++) {
-      const t = sp.draftTasks[i];
-      if (!t.locked) {
-        return { ok: false, message: "请先在第一步为每条任务点击「添加」确认，再生成安排。" };
-      }
+    const confirmed = sp.draftTasks.filter(isDraftConfirmed);
+    if (confirmed.length === 0) {
+      return { ok: false, message: "请至少对一条任务点击「添加」，保存为只读摘要后，才能进行 AI 安排。" };
+    }
+    for (let i = 0; i < confirmed.length; i++) {
+      const t = confirmed[i];
       if (!t.text || !String(t.text).trim()) {
-        return { ok: false, message: `第 ${i + 1} 行任务标题不能为空。` };
+        return { ok: false, message: `已确认的任务中有标题为空的项，请编辑后重新点「添加」。` };
       }
       if (t.expectedDurationMinutes == null || t.expectedDurationMinutes < 1) {
-        return { ok: false, message: `请为「${String(t.text).trim()}」填写预计完成时间（小时与分钟，合计至少 1 分钟）。` };
+        return { ok: false, message: `请为已确认任务「${String(t.text).trim()}」填写有效的预计完成时间。` };
       }
     }
     if (!sp.workStart || !sp.workEnd) {
@@ -1432,14 +1437,16 @@
           "开始/结束工作时间定义当日总可用范围；可工作时段为多行语段。workSlotsNormalized 已将自然语言时间转为数字时钟区间（如 6:40–8:30）；若语段中出现具体时间，任务必须整段落在其中某一区间内，且不得超出开始/结束工作时间。",
       },
       flexibilityStars: sp.flexibility,
-      tasks: sp.draftTasks.map((t) => ({
-        id: t.id,
-        title: String(t.text).trim(),
-        categoryLabel: draftCategoryLabel(t.categoryId || UNCATEGORIZED_ID),
-        urgency: t.urgency,
-        expectedDurationMinutes: t.expectedDurationMinutes,
-        timeMode: t.timeMode === "fragment" ? "fragment" : "block",
-      })),
+      tasks: sp.draftTasks
+        .filter(isDraftConfirmed)
+        .map((t) => ({
+          id: t.id,
+          title: String(t.text).trim(),
+          categoryLabel: draftCategoryLabel(t.categoryId || UNCATEGORIZED_ID),
+          urgency: t.urgency,
+          expectedDurationMinutes: t.expectedDurationMinutes,
+          timeMode: t.timeMode === "fragment" ? "fragment" : "block",
+        })),
     };
   }
 
@@ -1477,12 +1484,15 @@
 
   function buildItemsFromAiParsed(sp, parsed) {
     const items = parsed && Array.isArray(parsed.items) ? parsed.items : null;
-    if (!items || items.length !== sp.draftTasks.length) {
-      throw new Error("返回的任务条数与草稿不一致，请重试。");
+    const confirmedDrafts = sp.draftTasks.filter(isDraftConfirmed);
+    if (!items || items.length !== confirmedDrafts.length) {
+      throw new Error("返回的任务条数与已确认的任务条数不一致，请重试。");
     }
     const byId = new Map(items.map((it) => [String(it.taskId), it]));
     const catOk = (id) => state.daily.categories.some((c) => c.id === id);
-    const built = sp.draftTasks.map((draft, i) => {
+    const scheduledById = new Map();
+    for (let i = 0; i < confirmedDrafts.length; i++) {
+      const draft = confirmedDrafts[i];
       let row = byId.get(String(draft.id));
       if (!row) row = items[i];
       if (!row || row.timeStart == null || row.timeEnd == null) {
@@ -1499,20 +1509,43 @@
         throw new Error("每项任务的结束时间必须晚于开始时间。");
       }
       const cid = draft.categoryId && catOk(draft.categoryId) ? draft.categoryId : UNCATEGORIZED_ID;
-      return {
+      scheduledById.set(draft.id, {
         id: draft.id,
         text: String(draft.text).trim(),
         done: false,
         categoryId: cid,
-        order: i,
+        order: 0,
         deadline: null,
         planDays: null,
         urgency: draft.urgency,
         timeStart,
         timeEnd,
-      };
+      });
+    }
+    const built = sp.draftTasks.map((draft, order) => {
+      if (!isDraftConfirmed(draft)) {
+        const cid = draft.categoryId && catOk(draft.categoryId) ? draft.categoryId : UNCATEGORIZED_ID;
+        return {
+          id: draft.id,
+          text: String(draft.text || "").trim() || "未命名",
+          done: false,
+          categoryId: cid,
+          order,
+          deadline: null,
+          planDays: null,
+          urgency: draft.urgency,
+          timeStart: null,
+          timeEnd: null,
+        };
+      }
+      const it = scheduledById.get(draft.id);
+      if (!it) throw new Error("返回数据与已确认任务不匹配，请重试。");
+      return { ...it, order };
     });
-    assertScheduleWithinWorkPlan(sp, built);
+    assertScheduleWithinWorkPlan(
+      sp,
+      built.filter((x) => x.timeStart && x.timeEnd)
+    );
     return built;
   }
 
@@ -1673,8 +1706,8 @@
     const rows = listContainer.querySelectorAll(".smart-draft-row");
     const draftTasks = [];
     rows.forEach((row, i) => {
-      const prev = state.daily.smartPlan.draftTasks[i] || { id: uid(), urgency: 1, locked: false };
-      if (prev.locked || row.classList.contains("smart-draft-row--locked")) {
+      const prev = state.daily.smartPlan.draftTasks[i] || { id: uid(), urgency: 1, confirmed: false };
+      if (isDraftConfirmed(prev) || row.classList.contains("smart-draft-row--locked")) {
         draftTasks.push({
           id: prev.id || uid(),
           text: typeof prev.text === "string" ? prev.text : "",
@@ -1682,7 +1715,7 @@
           categoryId: prev.categoryId || UNCATEGORIZED_ID,
           expectedDurationMinutes: prev.expectedDurationMinutes,
           timeMode: prev.timeMode === "fragment" ? "fragment" : "block",
-          locked: true,
+          confirmed: true,
         });
         return;
       }
@@ -1718,7 +1751,7 @@
         categoryId,
         expectedDurationMinutes,
         timeMode,
-        locked: false,
+        confirmed: false,
       });
     });
     state.daily.smartPlan.draftTasks = draftTasks;
@@ -1740,7 +1773,8 @@
       const btn = e.target.closest(".smart-draft-edit");
       const idx = +btn.dataset.index;
       if (sp.draftTasks[idx]) {
-        sp.draftTasks[idx].locked = false;
+        sp.draftTasks[idx].confirmed = false;
+        delete sp.draftTasks[idx].locked;
         save();
         render();
       }
@@ -1752,7 +1786,7 @@
       const btn = e.target.closest(".smart-draft-commit");
       const idx = +btn.dataset.index;
       const t = sp.draftTasks[idx];
-      if (!t || t.locked) return;
+      if (!t || isDraftConfirmed(t)) return;
       const title = (t.text && String(t.text).trim()) || "";
       if (!title) {
         window.alert("请填写任务标题后再点击添加。");
@@ -1762,7 +1796,8 @@
         window.alert("请填写预计完成时间（小时与分钟，合计至少 1 分钟）后再点击添加。");
         return;
       }
-      sp.draftTasks[idx].locked = true;
+      sp.draftTasks[idx].confirmed = true;
+      delete sp.draftTasks[idx].locked;
       save();
       render();
       return;
@@ -1781,7 +1816,7 @@
         categoryId: preferred,
         expectedDurationMinutes: null,
         timeMode: "block",
-        locked: false,
+        confirmed: false,
       });
       save();
       render();
@@ -1806,8 +1841,8 @@
       }
       for (let i = 0; i < sp.draftTasks.length; i++) {
         const t = sp.draftTasks[i];
-        if (!t.locked) {
-          window.alert(`请先点击第 ${i + 1} 条任务下方的「添加」，确认该任务后再进入下一步。`);
+        if (!isDraftConfirmed(t)) {
+          window.alert(`请先点击第 ${i + 1} 条任务下方的「添加」，将该任务保存为只读摘要后再进入下一步。`);
           return;
         }
         if (!t.text || !String(t.text).trim()) {
@@ -2102,15 +2137,40 @@
   });
 
   listContainer.addEventListener(
+    "input",
+    (e) => {
+      if (state.activeSheet !== "daily" || state.daily.dailyArrangement !== "smart") return;
+      if (state.daily.smartPlan.step !== 1) return;
+      const row = e.target.closest(".smart-draft-row");
+      if (!row || row.classList.contains("smart-draft-row--locked")) return;
+      if (
+        e.target.classList.contains("smart-draft-title") ||
+        e.target.classList.contains("smart-draft-hours") ||
+        e.target.classList.contains("smart-draft-minutes")
+      ) {
+        collectSmartDraftFromDom();
+        save();
+      }
+    },
+    true
+  );
+
+  listContainer.addEventListener(
     "change",
     (e) => {
       if (state.activeSheet === "daily" && state.daily.dailyArrangement === "smart") {
+        if (state.daily.smartPlan.step === 1 && e.target.closest(".smart-draft-time-mode")) {
+          collectSmartDraftFromDom();
+          save();
+          return;
+        }
         const sel = e.target.closest(".smart-draft-cat");
         if (sel) {
           const row = sel.closest(".smart-draft-row");
           const idx = row ? +row.dataset.index : -1;
           if (idx >= 0 && state.daily.smartPlan.draftTasks[idx]) {
             state.daily.smartPlan.draftTasks[idx].categoryId = sel.value;
+            collectSmartDraftFromDom();
             save();
           }
           return;
