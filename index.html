@@ -34,7 +34,7 @@
 
       <section class="card sheet-card" aria-label="任务表类型">
         <p class="sheet-label">任务表</p>
-        <div class="sheet-switch" role="group">
+        <div class="sheet-switch" role="group" aria-label="每日或综合">
           <button type="button" class="sheet-btn is-active" id="sheet-daily" data-sheet="daily">
             每日任务表
           </button>
@@ -42,15 +42,68 @@
             综合任务表
           </button>
         </div>
+        <button
+          type="button"
+          class="btn btn-calendar-entry"
+          id="sheet-calendar"
+          aria-pressed="false"
+          aria-label="打开日历视图"
+        >
+          日历
+        </button>
       </section>
 
-      <section class="card daily-mode-card" id="daily-mode-card" hidden>
-        <p class="sheet-label">每日</p>
-        <div class="sheet-switch daily-arr-switch" role="group">
-          <button type="button" class="sheet-btn is-active" id="daily-arr-manual" data-arr="manual">
-            人工安排
-          </button>
-          <button type="button" class="sheet-btn" id="daily-arr-smart" data-arr="smart">智能安排</button>
+      <section class="card smart-arrange-card" id="smart-arrange-card" hidden>
+        <p class="sheet-label">智能安排</p>
+        <p class="smart-arrange-hint">
+          任务里可同时填「从–到」与「预计完成」；一键安排时<strong>有时段则固定时段</strong>，仅填预计则由
+          AI 排时间；两者都填时<strong>以时段为准</strong>。仅时段/仅预计都未填时按 60 分钟计。
+        </p>
+        <div class="smart-step2-grid smart-arrange-grid">
+          <label class="compose-field">
+            <span class="compose-field-label">开始工作时间</span>
+            <input
+              type="time"
+              id="smart-settings-work-start"
+              class="compose-input compose-input--sm"
+              step="60"
+            />
+          </label>
+          <label class="compose-field">
+            <span class="compose-field-label">结束工作时间</span>
+            <input
+              type="time"
+              id="smart-settings-work-end"
+              class="compose-input compose-input--sm"
+              step="60"
+            />
+          </label>
+          <div class="smart-slots-collapsible">
+            <button
+              type="button"
+              class="smart-slots-toggle"
+              id="smart-slots-toggle"
+              aria-expanded="false"
+              aria-controls="smart-slots-panel"
+            >
+              展开可工作时段
+            </button>
+            <div id="smart-slots-panel" class="smart-slots-panel" hidden>
+              <label class="compose-field compose-field--block">
+                <span class="compose-field-label">可工作时段（多行）</span>
+                <textarea
+                  id="smart-settings-work-slots"
+                  class="compose-textarea"
+                  rows="4"
+                  placeholder="每行一段，如：14:00-15:50"
+                ></textarea>
+              </label>
+            </div>
+          </div>
+          <div class="compose-field">
+            <span class="compose-field-label">任务表弹性</span>
+            <div class="star-picker smart-flex-picker" id="smart-settings-flex-picker"></div>
+          </div>
         </div>
       </section>
 
@@ -75,6 +128,10 @@
         >
           添加任务
         </button>
+        <button type="button" class="btn btn-oneclick-smart" id="btn-oneclick-smart" hidden>
+          一键智能安排
+        </button>
+        <p class="smart-oneclick-error" id="smart-oneclick-error" hidden role="alert"></p>
       </div>
 
       <section class="card compose compose--panel" id="compose-panel" hidden>
@@ -95,6 +152,37 @@
               <label class="compose-field compose-field--inline">
                 <span class="compose-field-label">到</span>
                 <input type="time" id="daily-time-end" class="compose-input compose-input--sm" step="60" />
+              </label>
+            </div>
+            <div class="compose-time-row compose-expected-row">
+              <span class="compose-field-label">预计完成</span>
+              <label class="compose-field compose-field--inline">
+                <input
+                  type="number"
+                  id="daily-expected-hours"
+                  class="compose-input compose-input--sm"
+                  min="0"
+                  max="1666"
+                  step="1"
+                  inputmode="numeric"
+                  placeholder="时"
+                  aria-label="预计小时"
+                />
+                <span class="compose-duration-suffix">小时</span>
+              </label>
+              <label class="compose-field compose-field--inline">
+                <input
+                  type="number"
+                  id="daily-expected-minutes"
+                  class="compose-input compose-input--sm"
+                  min="0"
+                  max="59"
+                  step="1"
+                  inputmode="numeric"
+                  placeholder="分"
+                  aria-label="预计分钟"
+                />
+                <span class="compose-duration-suffix">分钟</span>
               </label>
             </div>
           </div>
